@@ -18,9 +18,9 @@ READONLY = True   # read-only -> ungated. Plugins are GATED by default unless th
 
 SPEC = {
     "name": "disk_report",
-    "description": "RUNS_ROOT 아래 각 케이스 디렉토리의 디스크 사용량(MB)을 큰 순으로 반환. 디스크 위생용 read-only 플러그인.",
+    "description": "Return the disk usage (MB) of every case directory under RUNS_ROOT, largest first. Read-only plugin for disk hygiene.",
     "input_schema": {"type": "object", "properties": {
-        "top": {"type": "integer", "description": "상위 N개 (기본 15)"}}, "required": []},
+        "top": {"type": "integer", "description": "top N (default 15)"}}, "required": []},
 }
 
 
@@ -38,7 +38,7 @@ def _dir_mb(path: Path) -> float:
 def handler(top: int = 15) -> dict:
     root = Path(config.RUNS_ROOT)
     if not root.is_dir():
-        return {"ok": False, "error": f"RUNS_ROOT 없음: {root}"}
+        return {"ok": False, "error": f"RUNS_ROOT not found: {root}"}
     cases = [(d.name, _dir_mb(d)) for d in root.iterdir() if d.is_dir()]
     cases.sort(key=lambda x: x[1], reverse=True)
     return {"ok": True, "total_mb": round(sum(c[1] for c in cases), 1),

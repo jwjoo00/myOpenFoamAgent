@@ -45,7 +45,7 @@ def fetch(kind: str, dest_dir, name: str | None = None, url: str | None = None) 
 
     if kind == "airfoil":
         if not name:
-            raise ValueError("airfoil은 name 필요 (예: naca0012, n0012, ...)")
+            raise ValueError("airfoil requires name (e.g. naca0012, n0012, ...)")
         safe = "".join(c for c in name if c.isalnum() or c in "._-").lower()
         alias = re.sub(r"^naca", "n", safe) if safe.startswith("naca") else safe
         out = dest / f"{alias}.dat"
@@ -58,15 +58,15 @@ def fetch(kind: str, dest_dir, name: str | None = None, url: str | None = None) 
                         return out
                 except Exception as e:               # noqa: BLE001
                     last = e
-        raise last or ValueError(f"airfoil 다운로드 실패: {name}")
+        raise last or ValueError(f"airfoil download failed: {name}")
 
     if kind == "url":
         if not url:
-            raise ValueError("url 필요")
+            raise ValueError("url required")
         clean = url.split("?")[0].split("#")[0]
         ext = Path(clean).suffix.lower()
         if ext not in ALLOWED_EXT:
-            raise ValueError(f"허용 확장자 아님: {ext or '(없음)'} (허용: {sorted(ALLOWED_EXT)})")
+            raise ValueError(f"extension not allowed: {ext or '(none)'} (allowed: {sorted(ALLOWED_EXT)})")
         out = dest / Path(clean).name
         _download(url, out)
         return out

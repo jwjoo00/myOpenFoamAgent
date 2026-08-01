@@ -21,8 +21,8 @@ def main() -> int:
         ok = True
         sid = session.new_session_id()
         msgs = [
-            {"role": "user", "content": "cavity 돌려줘"},
-            {"role": "assistant", "content": [{"type": "text", "text": "네"},
+            {"role": "user", "content": "run cavity"},
+            {"role": "assistant", "content": [{"type": "text", "text": "Sure"},
                                               {"type": "tool_use", "id": "t1",
                                                "name": "copy_case", "input": {"tutorial": "x"}}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1",

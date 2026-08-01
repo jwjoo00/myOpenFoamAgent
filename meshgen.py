@@ -135,7 +135,7 @@ def generate(case_dir, geometry="cylinder_2d", target_cells=8000,
            "size_min": last.get("size_min"), "size_max": last.get("size_max"),
            "work": str(work)}
     if not oc.ok:
-        res["error"] = "메시 validation 실패 (repair 후에도)"
+        res["error"] = "mesh validation failed (even after repair)"
         res["failed_checks"] = [c.name for c in oc.report.failed]
         return res
 
@@ -152,7 +152,7 @@ def generate(case_dir, geometry="cylinder_2d", target_cells=8000,
 
     r = foam.run_foam("gmshToFoam", [str(work / "mesh.msh")], case=case, timeout=300)
     if not r.ok:
-        res["error"] = "gmshToFoam 실패"
+        res["error"] = "gmshToFoam failed"
         res["log_tail"] = r.tail(500)
         return res
 
@@ -171,9 +171,9 @@ def generate(case_dir, geometry="cylinder_2d", target_cells=8000,
 
 def generate_airfoil(case_dir, dat_path, aoa=0.0, chord=1.0, size_min=0.01, size_max=0.5,
                      scaffold=True) -> dict:
-    """fetch_geometry(airfoil)로 받은 UIUC .dat을 2D gmsh로 메싱(airfoil 패치 + front/back empty)
-    → gmshToFoam → checkMesh. scaffold면 풀 수 있는 케이스(0/·물성·schemes)까지. cylinder_2d의
-    외형 형상판."""
+    """Mesh a UIUC .dat obtained from fetch_geometry(airfoil) in 2D gmsh (airfoil patch + front/back empty)
+    → gmshToFoam → checkMesh. With scaffold, also lays down a solvable case (0/, properties, schemes). The
+    external-geometry counterpart of cylinder_2d."""
     import shutil
 
     import mesher
@@ -185,15 +185,15 @@ def generate_airfoil(case_dir, dat_path, aoa=0.0, chord=1.0, size_min=0.01, size
         mq = mesher.mesh_airfoil_2d(str(work), float(size_min), float(size_max),
                                     dat_path=dat_path, chord=float(chord), aoa=float(aoa))
     except Exception as e:
-        return {"ok": False, "error": f"airfoil mesh 실패: {type(e).__name__}: {e}"}
+        return {"ok": False, "error": f"airfoil mesh failed: {type(e).__name__}: {e}"}
 
     tmpl = Path(PROJECT_DIR) / "templates" / "airfoil_2d"
     scaffolded = False
     if scaffold and tmpl.is_dir():
         shutil.copytree(tmpl, case, dirs_exist_ok=True)
         scaffolded = True
-        # forceCoeffs로 양력/항력(Cl/Cd): 흐름 +x, lift +y, span(z) 1-cell. lRef=chord,
-        # Aref=chord×thickness, CofR=quarter-chord. (parse_force_coeffs로 읽힘)
+        # forceCoeffs for lift/drag (Cl/Cd): flow +x, lift +y, span(z) 1-cell. lRef=chord,
+        # Aref=chord×thickness, CofR=quarter-chord. (read back by parse_force_coeffs)
         cdf = case / "system" / "controlDict"
         if cdf.is_file() and "forceCoeffs" not in cdf.read_text():
             forces = (
@@ -211,7 +211,7 @@ def generate_airfoil(case_dir, dat_path, aoa=0.0, chord=1.0, size_min=0.01, size
 
     r = foam.run_foam("gmshToFoam", [str(work / "mesh.msh")], case=case, timeout=300)
     if not r.ok:
-        return {"ok": False, "error": "gmshToFoam 실패", "log_tail": r.tail(500)}
+        return {"ok": False, "error": "gmshToFoam failed", "log_tail": r.tail(500)}
     bfile = case / "constant" / "polyMesh" / "boundary"
     if bfile.is_file():
         bfile.write_text(_set_empty(bfile.read_text(), ("front", "back")))
@@ -272,11 +272,11 @@ def _next_external_config(cfg, m, skew_max, nonortho_max, sicn_min, max_dev_pct=
 def generate_external(case_dir, stl_path, target_faces=20000, size_max=None,
                       improve=True, max_rounds=5, max_deviation_pct=2.0,
                       skew_max=4.0, nonortho_max=70.0, sicn_min=1e-4) -> dict:
-    """외부 STL/OBJ(예: motorBike)를 snappy 없이 gmsh로 메싱하며 **품질을 self-improve**.
-    repair(watertight)+decimate → gmsh 외부 volume → checkMesh 한 라운드, 미달이면 data로
-    검증된 knob을 적용해 재메시: skew↑→Frontal, non-ortho↑→**벽면 smoothing**(STL을 펴서
-    boundary tet 개선; max_deviation_pct 예산 안에서, 변형량 측정·보고), sicn↓→faces↑.
-    best를 추적·복원하고, 한계를 못 넘으면 snappy_suggested로 사용자에게 제안한다."""
+    """Mesh an external STL/OBJ (e.g. motorBike) with gmsh instead of snappy, **self-improving the quality**.
+    One round is repair(watertight)+decimate → gmsh external volume → checkMesh; if it falls short, re-mesh
+    applying a data-validated knob: skew↑→Frontal, non-ortho↑→**wall smoothing** (flattens the STL to improve
+    boundary tets; within the max_deviation_pct budget, with the deviation measured and reported), sicn↓→faces↑.
+    Tracks and restores the best result, and if the limit cannot be beaten, suggests snappy_suggested to the user."""
     import shutil
     import mesher
 
@@ -285,7 +285,7 @@ def generate_external(case_dir, stl_path, target_faces=20000, size_max=None,
     work.mkdir(parents=True, exist_ok=True)
     _ensure_case_skeleton(case)
     fixed = work / "body_fixed.stl"
-    (work / "source.txt").write_text(str(stl_path))   # add_boundary_layers가 벽 재메싱에 사용
+    (work / "source.txt").write_text(str(stl_path))   # used by add_boundary_layers to re-mesh the wall
     sm = float(size_max) if size_max else None
 
     def attempt(cfg):
@@ -294,19 +294,19 @@ def generate_external(case_dir, stl_path, target_faces=20000, size_max=None,
                                               target_faces=cfg["target_faces"],
                                               smooth=cfg.get("smooth", 0))
         except Exception as e:
-            return {"ok": False, "error": f"surface repair 실패: {type(e).__name__}: {e}", **cfg}
+            return {"ok": False, "error": f"surface repair failed: {type(e).__name__}: {e}", **cfg}
         if not rep.get("watertight"):
-            return {"ok": False, "error": "repair 후 watertight 아님", "repaired_faces": rep.get("n_faces"), **cfg}
+            return {"ok": False, "error": "not watertight after repair", "repaired_faces": rep.get("n_faces"), **cfg}
         try:
             mq = mesher.mesh_external_stl_3d(str(work), str(fixed), size_max=sm,
                                              algo=cfg["algo"], opt_passes=2, grade=False)
         except Exception as e:
-            return {"ok": False, "error": f"gmsh mesh 실패: {type(e).__name__}: {e}",
+            return {"ok": False, "error": f"gmsh mesh failed: {type(e).__name__}: {e}",
                     "repaired_faces": rep.get("n_faces"), "deviation": rep.get("deviation"), **cfg}
         shutil.rmtree(case / "constant" / "polyMesh", ignore_errors=True)
         r = foam.run_foam("gmshToFoam", [str(work / "mesh.msh")], case=case, timeout=600)
         if not r.ok:
-            return {"ok": False, "error": "gmshToFoam 실패", "repaired_faces": rep.get("n_faces"),
+            return {"ok": False, "error": "gmshToFoam failed", "repaired_faces": rep.get("n_faces"),
                     "n_elements": mq.get("n_elements"), "deviation": rep.get("deviation"), **cfg}
         rc = foam.run_foam("checkMesh", case=case, timeout=600)
         cm = foam.parse_checkmesh(rc.stdout)
@@ -361,15 +361,16 @@ def generate_external(case_dir, stl_path, target_faces=20000, size_max=None,
            "quality_met": quality_met, "nonortho_floor": nonortho,
            "stl_deviation": dev, "snappy_suggested": bool(snappy), "work": str(work)}
     if snappy:
-        res["solver_hint"] = "fvSolution: nNonOrthogonalCorrectors 2~3 (high max non-ortho 보정)"
-        dtxt = (f"STL을 max {dev.get('max_pct')}%/mean {dev.get('mean_pct')}% 변형(smoothing)"
-                if dev else "벽면 smoothing")
+        res["solver_hint"] = "fvSolution: nNonOrthogonalCorrectors 2~3 (corrects the high max non-ortho)"
+        dtxt = (f"Deforming the STL by max {dev.get('max_pct')}%/mean {dev.get('mean_pct')}% (smoothing)"
+                if dev else "Wall smoothing")
         res["snappy_reason"] = (
-            f"{dtxt}해 max_non_ortho를 89°→{nonortho}°까지 낮췄으나 RANS-ideal(<70°)은 못 넘음 — "
-            "복잡 body의 thin feature(거울·번호판·스포크)가 만드는 boundary tet은 tet 메시의 본질적 "
-            "한계다(knobs·polyDual·pyacvd·tetgen 등 모두 확인, QUALITY_STUDY.md). 현재 메시도 average "
-            "non-ortho는 낮아 nNonOrthogonalCorrectors 2~3으로 solve 가능(못 쓰는 메시 아님). 정량 벽면 "
-            "정확도(drag·Cf)가 필요하면 snappyHexMesh(hex+boundary layers) 전환을 권한다.")
+            f"{dtxt} brought max_non_ortho down from 89° to {nonortho}°, but still does not beat RANS-ideal (<70°) — "
+            "the boundary tets produced by the thin features of a complex body (mirrors, license plate, spokes) are an "
+            "intrinsic limit of tet meshes (knobs, polyDual, pyacvd, tetgen all checked; QUALITY_STUDY.md). Even this "
+            "mesh has a low average non-ortho, so it is solvable with nNonOrthogonalCorrectors 2~3 (it is not an "
+            "unusable mesh). If quantitative wall accuracy (drag, Cf) is needed, switching to snappyHexMesh "
+            "(hex+boundary layers) is recommended.")
     if best:
         for k in ("repaired_faces", "n_elements", "min_sicn", "mesh_cells", "max_non_ortho",
                   "max_skewness", "mesh_ok", "patches", "target_faces", "algo", "smooth"):
@@ -379,10 +380,10 @@ def generate_external(case_dir, stl_path, target_faces=20000, size_max=None,
 
 def generate_external_netgen(case_dir, stl_path, n_layers=3, first_layer=None,
                              target_faces=40000, smooth=0) -> dict:
-    """**Clean watertight 형상**용 BL 메시: STL→OCC solid(OCP sew)→netgen box−body를 prism
-    boundary layer까지 한 번에 메싱→gmshToFoam→checkMesh. snappy 없이 깨끗한 BL(sphere 검증:
-    non-ortho 51, skew 0.5, Mesh OK). 바이크처럼 thin feature 많은 dirty 형상은 netgen BL이
-    깨지니 generate_external + add_boundary_layers(snappy)를 쓸 것."""
+    """BL mesh for **clean watertight geometry**: STL→OCC solid (OCP sew)→netgen meshes box−body in one
+    shot, prism boundary layer included→gmshToFoam→checkMesh. A clean BL without snappy (sphere verified:
+    non-ortho 51, skew 0.5, Mesh OK). On dirty geometry with many thin features, like the bike, netgen BL
+    breaks, so use generate_external + add_boundary_layers(snappy) instead."""
     import shutil
 
     import mesher
@@ -395,20 +396,20 @@ def generate_external_netgen(case_dir, stl_path, n_layers=3, first_layer=None,
         rep = mesher.repair_to_watertight(stl_path, str(fixed), target_faces=int(target_faces),
                                           smooth=int(smooth))
     except Exception as e:
-        return {"ok": False, "error": f"surface repair 실패: {type(e).__name__}: {e}"}
+        return {"ok": False, "error": f"surface repair failed: {type(e).__name__}: {e}"}
     if not rep.get("watertight"):
-        return {"ok": False, "error": "repair 후 watertight 아님"}
+        return {"ok": False, "error": "not watertight after repair"}
     try:
         mq = mesher.mesh_external_netgen_bl(str(case), str(fixed), n_layers=int(n_layers),
                                             first_layer=first_layer)
     except Exception as e:
-        return {"ok": False, "error": f"netgen BL 실패(thin/복잡 형상이면 snappy 경로 사용): "
+        return {"ok": False, "error": f"netgen BL failed (use the snappy path for thin/complex geometry): "
                 f"{type(e).__name__}: {e}", "geometry": "external_netgen"}
     _ensure_case_skeleton(case)
     shutil.rmtree(case / "constant" / "polyMesh", ignore_errors=True)
     r = foam.run_foam("gmshToFoam", [mq["msh"]], case=case, timeout=600)
     if not r.ok:
-        return {"ok": False, "error": "gmshToFoam 실패", "log_tail": r.tail(500)}
+        return {"ok": False, "error": "gmshToFoam failed", "log_tail": r.tail(500)}
     cm = foam.parse_checkmesh(foam.run_foam("checkMesh", case=case, timeout=600).stdout)
     return {"ok": bool(cm.get("mesh_ok")), "geometry": "external_netgen", "method": "netgen+OCP",
             "n_elements": mq.get("n_elements"), "n_prisms": mq.get("n_prisms"),
@@ -418,10 +419,11 @@ def generate_external_netgen(case_dir, stl_path, n_layers=3, first_layer=None,
 
 
 # --- 3D boundary layers: gmsh tet mesh + snappyHexMesh addLayers-only --------
-# gmsh는 3D prism BL을 못 만든다(BoundaryLayer field는 2D 전용). 그래서 gmsh가 잡은
-# 형상(constant/polyMesh) 위에 snappy의 addLayers 단계만 돌려 벽면 prism 층을 넣는다 —
-# 외부유동 RANS 벽면 정확도(drag·Cf)에 필수. tet base라 quality 제약을 완화해야 layer가
-# 삽입되며, thin feature(거울·스포크)에는 부분적으로만 깔린다(coverage% 보고).
+# gmsh cannot build a 3D prism BL (its BoundaryLayer field is 2D only). So we run only snappy's addLayers
+# stage on top of the geometry gmsh captured (constant/polyMesh) to insert the wall prism layers —
+# essential for external-flow RANS wall accuracy (drag, Cf). On a tet base the quality constraints must be
+# relaxed for layers to be inserted, and on thin features (mirrors, spokes) they are laid down only partially
+# (coverage% reported).
 
 _SNAPPY_LAYERS_DICT = """FoamFile{{ format ascii; class dictionary; object snappyHexMeshDict; }}
 castellatedMesh false;
@@ -458,8 +460,8 @@ mergeTolerance 1e-6;
 
 
 def _parse_snappy_layers(out, patch):
-    """snappy 로그의 layer 요약(patch faces avgLayers thickness coverage%)에서 평균 layer 수와
-    coverage%를 뽑는다. 마지막 매칭(=최종 결과)을 사용."""
+    """Extract the average layer count and coverage% from the layer summary in the snappy log
+    (patch faces avgLayers thickness coverage%). Uses the last match (= the final result)."""
     pat = re.compile(rf"^\s*{re.escape(patch)}\s+\d+\s+([\d.]+)\s+[\d.eE+-]+\s+([\d.]+)\s*$")
     avg = cov = None
     for line in out.splitlines():
@@ -471,11 +473,12 @@ def _parse_snappy_layers(out, patch):
 
 def add_boundary_layers(case_dir, body_patch="body", n_layers=3, first_layer=None,
                         expansion=1.25, min_thickness=None, wall_faces=30000, wall_smooth=20) -> dict:
-    """gmsh 외부 메시에 snappyHexMesh addLayers-only로 벽면 prism BL을 넣는다. **layer coverage는
-    벽면 메시 해상도가 좌우**한다(실측: 20k면→67%, 30k면→78%). 그래서 wall_faces>0이고 원본이
-    있으면 벽을 그 해상도+wall_smooth로 다시 메싱한 뒤 layer를 넣는다(non-ortho는 조금 오르나
-    nNonOrthogonalCorrectors로 보정, skew는 유효 범위). wall_faces=0이면 기존 polyMesh 그대로.
-    first_layer 미지정 시 body 대각선의 0.12%. 반환: layer coverage%·평균 layer 수·전후 cells/품질."""
+    """Insert wall prism BL into a gmsh external mesh with snappyHexMesh addLayers-only. **Layer coverage is
+    governed by the wall mesh resolution** (measured: 20k faces→67%, 30k faces→78%). So when wall_faces>0 and
+    the original geometry is available, the wall is re-meshed at that resolution + wall_smooth before the layers
+    are inserted (non-ortho rises a little but is corrected by nNonOrthogonalCorrectors; skew stays in range).
+    wall_faces=0 keeps the existing polyMesh as is. If first_layer is unset, 0.12% of the body diagonal.
+    Returns: layer coverage%, average layer count, before/after cells and quality."""
     import shutil
 
     import numpy as np
@@ -488,7 +491,7 @@ def add_boundary_layers(case_dir, body_patch="body", n_layers=3, first_layer=Non
     bstl = work / "body_fixed.stl"
     src_file = work / "source.txt"
 
-    # BL coverage를 위해 벽을 finer로 재메싱 (generate_external가 저장한 원본이 있을 때만)
+    # re-mesh the wall finer for BL coverage (only when generate_external saved the original)
     remeshed = None
     if wall_faces and src_file.is_file():
         src = src_file.read_text().strip()
@@ -503,12 +506,12 @@ def add_boundary_layers(case_dir, body_patch="body", n_layers=3, first_layer=Non
                     remeshed = {"wall_faces": int(wall_faces), "wall_smooth": int(wall_smooth),
                                 "repaired_faces": rep.get("n_faces")}
             except Exception as e:
-                remeshed = {"error": f"벽 재메싱 실패(기존 메시로 진행): {type(e).__name__}: {e}"}
+                remeshed = {"error": f"wall re-mesh failed (continuing with the existing mesh): {type(e).__name__}: {e}"}
 
     if not (case / "constant" / "polyMesh" / "boundary").is_file():
-        return {"ok": False, "error": "polyMesh 없음 — generate_mesh(geometry=external_stl) 먼저 실행"}
+        return {"ok": False, "error": "no polyMesh — run generate_mesh(geometry=external_stl) first"}
     if not bstl.is_file():
-        return {"ok": False, "error": f"body STL 없음: {bstl} (generate_mesh external_stl 산출물 필요)"}
+        return {"ok": False, "error": f"no body STL: {bstl} (the generate_mesh external_stl output is required)"}
 
     cm0 = foam.parse_checkmesh(foam.run_foam("checkMesh", case=case, timeout=600).stdout)
 
@@ -542,7 +545,7 @@ def add_boundary_layers(case_dir, body_patch="body", n_layers=3, first_layer=Non
 
     rs = foam.run_foam("snappyHexMesh", ["-overwrite"], case=case, timeout=1200)
     if not rs.ok:
-        return {"ok": False, "error": "snappyHexMesh addLayers 실패", "log_tail": rs.tail(800)}
+        return {"ok": False, "error": "snappyHexMesh addLayers failed", "log_tail": rs.tail(800)}
     avg, cov = _parse_snappy_layers(rs.stdout, body_patch)
     cm1 = foam.parse_checkmesh(foam.run_foam("checkMesh", case=case, timeout=600).stdout)
     return {"ok": bool(cm1.get("mesh_ok")), "body_patch": body_patch,
@@ -554,10 +557,10 @@ def add_boundary_layers(case_dir, body_patch="body", n_layers=3, first_layer=Non
 
 
 # --- external RANS scaffold (kOmegaSST, foamRun) + drag (forceCoeffs) --------
-# OF12 motorBikeSteady 튜토리얼 기반: foamRun + incompressibleFluid + kOmegaSST + SIMPLE.
-# 우리 patch(inlet/outlet/bottom/farfield/body)에 맞춰 쓰고, gmsh 메시의 높은 non-ortho(~88)
-# 때문에 SIMPLE nNonOrthogonalCorrectors를 0→3으로 올린다(튜토리얼 hex 메시는 0). lRef/Aref/CofR는
-# body bbox에서 자동 산출. forceCoeffs functionObject가 매 iter Cd/Cl과 항력을 기록한다.
+# Based on the OF12 motorBikeSteady tutorial: foamRun + incompressibleFluid + kOmegaSST + SIMPLE.
+# Written to match our patches (inlet/outlet/bottom/farfield/body), and because of the gmsh mesh's high
+# non-ortho (~88) SIMPLE nNonOrthogonalCorrectors is raised 0→3 (the tutorial hex mesh uses 0). lRef/Aref/CofR
+# are derived automatically from the body bbox. The forceCoeffs functionObject logs Cd/Cl and drag every iter.
 
 def _ff(obj, cls="dictionary"):
     return (f"FoamFile{{ version 2.0; format ascii; class {cls}; object {obj}; }}\n")
@@ -566,29 +569,31 @@ def _ff(obj, cls="dictionary"):
 def scaffold_external_ras(case_dir, flow_velocity=20.0, nu=1.5e-5, turb_intensity=0.05,
                           end_time=500, nnonortho=3, turbulence="kOmegaSST",
                           residual_tol=1e-4) -> dict:
-    """external(+BL) 케이스에 외부유동 RANS 셋업(0/·constant/·system/)을 깐다. turbulence로 난류
-    모델 선택(laminar / kOmegaSST / kEpsilon / SpalartAllmaras) → 그에 맞는 필드·BC·wall function·
-    div schemes·solvers 자동 생성. Re는 flow_velocity·nu로 정한다. body bbox로 lRef·Aref·CofR 자동,
-    forceCoeffs로 drag/lift. 높은 non-ortho면 nnonortho를 올린다.
+    """Lay down an external-flow RANS setup (0/, constant/, system/) on an external(+BL) case. `turbulence`
+    picks the turbulence model (laminar / kOmegaSST / kEpsilon / SpalartAllmaras) → the matching fields, BCs,
+    wall functions, div schemes and solvers are generated automatically. Re is set by flow_velocity and nu.
+    lRef/Aref/CofR come automatically from the body bbox, drag/lift from forceCoeffs. Raise nnonortho when
+    non-ortho is high.
 
-    수렴 제어(OF12 drivaerFastback/airFoil2D 방식): residual_tol>0이면 SIMPLE residualControl을
-    써서 p·U·난류필드 초기잔차가 모두 residual_tol 밑으로 떨어지면 **자동으로 멈춘다**(수렴). 이때
-    end_time은 '수렴 못 하면 여기서 끊는다'는 **상한(cap)**일 뿐 고정 반복수가 아니다. residual_tol=0이면
-    옛 방식(고정 end_time 반복). cap·미수렴 대응 결정은 런타임에서 find_similar_runs(과거 수렴 run) +
-    web_search로 한다."""
+    Convergence control (the OF12 drivaerFastback/airFoil2D way): with residual_tol>0, SIMPLE residualControl
+    is used and it **stops automatically** (converged) once the initial residuals of p, U and the turbulence
+    fields all drop below residual_tol. end_time is then only a **cap** meaning 'cut it off here if it does not
+    converge', not a fixed iteration count. residual_tol=0 gives the old behaviour (fixed end_time iterations).
+    Deciding the cap and how to handle non-convergence is done at runtime with find_similar_runs (past converged
+    runs) + web_search."""
     import numpy as np
     import trimesh
 
     case = Path(case_dir)
     bdy = case / "constant" / "polyMesh" / "boundary"
     if not bdy.is_file():
-        return {"ok": False, "error": "polyMesh 없음 — generate_mesh(external_stl) 먼저"}
+        return {"ok": False, "error": "no polyMesh — run generate_mesh(external_stl) first"}
     # nut/k/omega wall functions require the body patch to be type 'wall'
     # (gmshToFoam writes it as 'patch') — fix it in the boundary file.
     bdy.write_text(re.sub(r"(\bbody\b\s*\{[^}]*?type\s+)patch(\s*;)",
                           r"\1wall\2", bdy.read_text(), flags=re.S))
     bstl = case / "meshWork" / "body_fixed.stl"
-    if not bstl.is_file():   # snappy 경로는 body를 constant/triSurface에 둔다(.eMesh 등 제외)
+    if not bstl.is_file():   # the snappy path puts body under constant/triSurface (excluding .eMesh etc.)
         hits = [h for h in sorted((case / "constant" / "triSurface").glob("body.*"))
                 if h.suffix.lower() in (".stl", ".stlb", ".obj")]
         if hits:
@@ -603,7 +608,7 @@ def scaffold_external_ras(case_dir, flow_velocity=20.0, nu=1.5e-5, turb_intensit
         cofr = ((mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, mn[2])
     else:
         lref, aref, cofr = 1.0, 1.0, (0.0, 0.0, 0.0)
-    # 난류 모델별 필드 세트 + freestream 값(intensity·length scale 0.07*lref 기반)
+    # per-turbulence-model field set + freestream values (based on intensity and length scale 0.07*lref)
     MODELS = {"laminar": [], "kOmegaSST": ["k", "omega"], "kEpsilon": ["k", "epsilon"],
               "SpalartAllmaras": ["nuTilda"]}
     if turbulence not in MODELS:
@@ -667,7 +672,7 @@ def scaffold_external_ras(case_dir, flow_velocity=20.0, nu=1.5e-5, turb_intensit
         f"stopAt endTime; endTime {int(end_time)}; deltaT 1;\nwriteControl timeStep; writeInterval {int(end_time)};\n"
         "purgeWrite 2; writeFormat binary; writePrecision 6; writeCompression off;\n"
         "timeFormat general; timePrecision 6; runTimeModifiable true;\n" + forces)
-    # high-non-ortho 메시: limited laplacian/snGrad이 non-ortho 보정을 cap, div(phi,U) upwind로 안정.
+    # high-non-ortho mesh: limited laplacian/snGrad caps the non-ortho correction, div(phi,U) upwind for stability.
     div_turb = "".join(f"    div(phi,{f}) bounded Gauss upwind;\n" for f in tfields)
     (sysd / "fvSchemes").write_text(_ff("fvSchemes") +
         "ddtSchemes{ default steadyState; }\n"
@@ -680,8 +685,8 @@ def scaffold_external_ras(case_dir, flow_velocity=20.0, nu=1.5e-5, turb_intensit
         f"    {f} {{ solver smoothSolver; smoother GaussSeidel; tolerance 1e-8; relTol 0.1; nSweeps 1; }}\n"
         for f in tfields)
     relax_turb = "".join(f" {f} 0.5;" for f in tfields)
-    # residualControl(OF12 drivaerFastback 방식): p·U·난류필드 초기잔차가 모두 residual_tol 밑이면
-    # SIMPLE이 endTime 전에 '수렴'으로 멈춘다. residual_tol=0이면 블록 생략(고정 반복).
+    # residualControl (the OF12 drivaerFastback way): when the initial residuals of p, U and the turbulence fields
+    # are all below residual_tol, SIMPLE stops as 'converged' before endTime. residual_tol=0 omits the block (fixed iterations).
     rc = ""
     if residual_tol and residual_tol > 0:
         rc_fields = "".join(f"        {f} {residual_tol:g};\n" for f in (["p", "U"] + tfields))
@@ -709,8 +714,8 @@ def scaffold_external_ras(case_dir, flow_velocity=20.0, nu=1.5e-5, turb_intensit
 
 
 def parse_force_coeffs(case_dir):
-    """postProcessing/forceCoeffs1/<t>/coefficient.dat(또는 forceCoeffs.dat)에서 최신 Cd/Cl을
-    읽는다. 헤더의 컬럼명으로 Cd/Cl 위치를 찾는다."""
+    """Read the latest Cd/Cl from postProcessing/forceCoeffs1/<t>/coefficient.dat (or forceCoeffs.dat).
+    Locates the Cd/Cl columns by the column names in the header."""
     base = Path(case_dir) / "postProcessing" / "forceCoeffs1"
     if not base.is_dir():
         return None
@@ -747,11 +752,11 @@ def parse_force_coeffs(case_dir):
 
 
 def parse_convergence(case_dir, log_name="log.foamRun", log_text=None):
-    """수렴 여부 판별. residualControl이 걸리면 foamRun이 endTime(cap) 전에 멈추므로:
-    (1) 로그에서 'SIMPLE solution converged in N iterations'를 찾고, (2) 최신 time dir < cap이면
-    조기 종료(=수렴)로 본다. log_text가 주어지면(run_solver의 stdout) 그걸 쓰고, 없으면 log 파일을
-    읽는다. 반환: {converged, diverged, final_time, end_time_cap, converged_iters, last_residuals}.
-    converged_iters는 다음 run의 cap을 DB·web으로 정할 때 쓰는 핵심 수치."""
+    """Decide whether the run converged. With residualControl active foamRun stops before endTime (cap), so:
+    (1) look for 'SIMPLE solution converged in N iterations' in the log, and (2) if the latest time dir < cap,
+    treat it as an early stop (= converged). If log_text is given (run_solver's stdout) it is used, otherwise
+    the log file is read. Returns: {converged, diverged, final_time, end_time_cap, converged_iters, last_residuals}.
+    converged_iters is the key number used when setting the next run's cap from the DB and the web."""
     case = Path(case_dir)
     cap = None
     cd = case / "system" / "controlDict"
@@ -780,13 +785,13 @@ def parse_convergence(case_dir, log_name="log.foamRun", log_text=None):
         m = re.search(r"solution converged in (\d+) iterations", text)
         if m:
             converged_iters = int(m.group(1))
-        # 실제 발산 시그니처(시작 배너 'sigFpe : Enabling …'는 제외): handler 발화·FATAL·OS 신호·
-        # stack dump·NaN/inf 잔차. 고-Courant 발산은 run_solver의 foam.parse_solver_log가 추가로 잡는다.
+        # real divergence signatures (excluding the startup banner 'sigFpe : Enabling …'): handler firing, FATAL,
+        # OS signal, stack dump, NaN/inf residual. High-Courant divergence is caught additionally by run_solver's foam.parse_solver_log.
         if re.search(r"FOAM FATAL|::sigHandler|Floating point exception"
                      r"|error::printStack|Initial residual = (?:nan|inf)", text):
             diverged = True
-        # 현재 run의 최종 시각은 로그의 마지막 'Time = N'에서 — 디렉토리 max는 이전 run의 stale dir을
-        # 주울 수 있다('s' 접미 무시). 로그가 있으면 이게 우선.
+        # the current run's final time comes from the last 'Time = N' in the log — the directory max can pick up
+        # a stale dir from a previous run (the 's' suffix is ignored). When a log exists, this takes precedence.
         tmatches = re.findall(r"(?m)^Time = ([0-9.eE+\-]+)", text)
         if tmatches:
             try:
@@ -798,9 +803,10 @@ def parse_convergence(case_dir, log_name="log.foamRun", log_text=None):
                             + r",\s*Initial residual = ([0-9.eE+\-]+)", text)
             if mm:
                 last_res[fld] = float(mm[-1])
-    # converged는 OF의 명시적 'solution converged in N iterations' 메시지로만 인정한다. cap 전에
-    # 멈춘 것(final_time<cap)은 수렴의 충분조건이 아니다 — timeout·kill·발산도 cap 전에 멈추므로 이는
-    # stopped_early 진단 플래그로만 보고하고, run_solver가 clean-exit·foam diverged와 교차검증한다.
+    # converged is granted only by OF's explicit 'solution converged in N iterations' message. Stopping before the
+    # cap (final_time<cap) is not a sufficient condition for convergence — timeout, kill and divergence also stop
+    # before the cap, so it is reported only as the stopped_early diagnostic flag, and run_solver cross-checks it
+    # against clean-exit and foam diverged.
     stopped_early = bool(cap is not None and final_time is not None and 0 < final_time < cap)
     converged = bool(converged_iters)
     return {"converged": converged, "diverged": diverged, "stopped_early": stopped_early,
@@ -810,24 +816,26 @@ def parse_convergence(case_dir, log_name="log.foamRun", log_text=None):
 
 
 # --- rotating machinery (MRF): steady Multiple Reference Frame on a rotor cellZone ----
-# OF12 mixerVessel2DMRF(MRFProperties 문법) + propeller(forces·cellZone) 튜토리얼 기반. 회전메시
-# (transient AMI) 대신 steady SIMPLE로 회전영역(cellZone)에 frame 회전을 줘 thrust·torque를 싸게 푼다.
+# Based on the OF12 mixerVessel2DMRF (MRFProperties syntax) + propeller (forces, cellZone) tutorials. Instead of a
+# rotating mesh (transient AMI), steady SIMPLE gives the rotating region (cellZone) a frame rotation to solve thrust and torque cheaply.
 
 def scaffold_mrf(case_dir, cellzone="innerCylinder", axis=(0, 1, 0), origin=(0, 0, 0),
                  rpm=1500.0, flow_velocity=5.0, nu=1e-6, turbulence="kEpsilon",
                  rotor_patches="propeller.*", residual_tol=1e-4, end_time=2000,
                  nnonortho=2) -> dict:
-    """rotating machinery(MRF) 셋업: constant/MRFProperties로 회전 cellZone을 정의하고 회전메시 대신
-    steady SIMPLE(foamRun+incompressibleFluid)로 푼다. dynamicMeshDict 제거, 회전벽 patch는 noSlip
-    (MRF는 회전을 frame으로 처리). forces functionObject로 축방향 thrust·torque 기록 → power=τ·ω.
-    residualControl로 수렴 시 자동 정지(end_time=cap). OF12 mixerVessel2DMRF + propeller 기반."""
+    """rotating machinery (MRF) setup: define the rotating cellZone in constant/MRFProperties and solve with
+    steady SIMPLE (foamRun+incompressibleFluid) instead of a rotating mesh. dynamicMeshDict is removed and the
+    rotating-wall patch is forced to MRFnoSlip — it must rotate with the MRF frame; plain noSlip would be a
+    stationary wall in the absolute frame, so the blades would not turn and only drag would be produced. The forces functionObject records
+    axial thrust and torque → power=τ·ω. residualControl auto-stops on convergence (end_time=cap).
+    Based on OF12 mixerVessel2DMRF + propeller."""
     import math
     case = Path(case_dir)
     cz = case / "constant" / "polyMesh" / "cellZones"
     if not cz.is_file():
-        return {"ok": False, "error": "cellZones 없음 — MRF는 회전 cellZone이 필요(snappy로 생성)"}
+        return {"ok": False, "error": "no cellZones — MRF requires a rotating cellZone (create it with snappy)"}
     if cellzone not in cz.read_text(errors="replace"):
-        return {"ok": False, "error": f"cellZone '{cellzone}'가 메시에 없음(cellZones 파일 확인)"}
+        return {"ok": False, "error": f"cellZone '{cellzone}' is not in the mesh (check the cellZones file)"}
     ax = tuple(float(x) for x in axis)
     org = tuple(float(x) for x in origin)
     omega = float(rpm) * 2.0 * math.pi / 60.0  # rad/s
@@ -839,9 +847,10 @@ def scaffold_mrf(case_dir, cellzone="innerCylinder", axis=(0, 1, 0), origin=(0, 
         f"    axis        ({ax[0]} {ax[1]} {ax[2]});\n"
         f"    omega       {float(rpm)} [rpm];\n"
         "}\n")
-    # 회전벽은 **MRFnoSlip**(MRF 프레임과 함께 회전)이라야 한다 — 그냥 noSlip은 절대프레임 정지벽이라
-    # 블레이드가 안 돌고 drag만 난다(실측 검증). rotor_patches 블록 type을 MRFnoSlip으로 강제,
-    # moving-mesh 잔여 BC도 변환. (OF12 mixerVessel2DMRF: rotor=MRFnoSlip, stator=noSlip)
+    # the rotating wall MUST be **MRFnoSlip** (rotates together with the MRF frame) — plain noSlip is a wall at
+    # rest in the absolute frame, so the blades do not rotate and you only get drag (verified by measurement).
+    # Force the rotor_patches block type to MRFnoSlip, and convert leftover moving-mesh BCs too.
+    # (OF12 mixerVessel2DMRF: rotor=MRFnoSlip, stator=noSlip)
     u = case / "0" / "U"
     if u.is_file():
         txt = u.read_text().replace("movingWallVelocity", "MRFnoSlip") \
@@ -862,9 +871,10 @@ def scaffold_mrf(case_dir, cellzone="innerCylinder", axis=(0, 1, 0), origin=(0, 
         f"viscosityModel constant;\nnu [0 2 -1 0 0 0 0] {nu:g};\n")
     sysd = case / "system"
     sysd.mkdir(exist_ok=True)
-    # OF12 foamRun은 system/functions를 자동 로드하되, 거기엔 #include 지시만 인식한다(직접 dict 정의는
-    # 무시됨 — 실측). 그래서 검증된 튜토리얼 방식: forces 정의는 system/forces에 쓰고 system/functions가
-    # 그걸 #include 한다. 튜토리얼 transient용 잔여(surfaces·Q)는 제거. regex patch는 반드시 따옴표.
+    # OF12 foamRun auto-loads system/functions, but only recognises #include directives in it (a dict defined
+    # inline there is ignored — measured). So we use the verified tutorial way: the forces definition is written
+    # to system/forces and system/functions #includes it. The tutorial's transient leftovers (surfaces, Q) are
+    # removed. A regex patch MUST be quoted.
     (sysd / "surfaces").unlink(missing_ok=True)
     (sysd / "Q").unlink(missing_ok=True)
     (sysd / "forces").write_text(
@@ -878,7 +888,7 @@ def scaffold_mrf(case_dir, cellzone="innerCylinder", axis=(0, 1, 0), origin=(0, 
         f"stopAt endTime; endTime {int(end_time)}; deltaT 1;\nwriteControl timeStep; writeInterval {int(end_time)};\n"
         "purgeWrite 2; writeFormat binary; writePrecision 6; writeCompression off;\n"
         "timeFormat general; timePrecision 6; runTimeModifiable true;\n")
-    # forces는 위에서 쓴 system/functions(OF12 자동로드)로 돈다 — controlDict엔 functions 불필요.
+    # forces runs via the system/functions written above (OF12 auto-load) — no functions block needed in controlDict.
     div_turb = "".join(f"    div(phi,{f}) bounded Gauss upwind;\n" for f in tfields)
     (sysd / "fvSchemes").write_text(_ff("fvSchemes") +
         "ddtSchemes{ default steadyState; }\n"
@@ -915,8 +925,8 @@ def _floats(line):
 
 
 def _sum_triplets(vals):
-    """평탄화된 float 목록을 (x,y,z) triplet으로 묶어 elementwise 합. OF forces.dat의
-    forces(pressure viscous [porous]) 분해를 합산해 총 force/moment 벡터를 만든다."""
+    """Group a flattened float list into (x,y,z) triplets and sum elementwise. Sums the
+    forces(pressure viscous [porous]) decomposition in OF's forces.dat into a total force/moment vector."""
     v = [0.0, 0.0, 0.0]
     for i in range(0, len(vals) - len(vals) % 3, 3):
         v[0] += vals[i]; v[1] += vals[i + 1]; v[2] += vals[i + 2]
@@ -924,10 +934,10 @@ def _sum_triplets(vals):
 
 
 def parse_forces(case_dir, axis=(0, 1, 0), omega_rad_s=None, func=None):
-    """postProcessing의 forces functionObject 출력에서 최신 force·moment를 읽어 축방향 thrust·torque,
-    power(=|torque·omega|)를 낸다. OF12 forces.dat 포맷: `Time forces((p)(v)) moments((p)(v))` —
-    force/moment 각각 pressure+viscous(+porous)를 합산. func 미지정 시 postProcessing 아래에서
-    forces.dat(또는 force.dat)를 자동 탐색. axis는 단위벡터로 정규화. omega_rad_s 주면 power 계산."""
+    """Read the latest force and moment from the forces functionObject output under postProcessing and produce
+    axial thrust, torque and power (=|torque·omega|). OF12 forces.dat format: `Time forces((p)(v)) moments((p)(v))` —
+    force and moment each sum pressure+viscous(+porous). If func is unset, auto-discover forces.dat (or force.dat)
+    under postProcessing. axis is normalised to a unit vector. Give omega_rad_s to compute power."""
     import math
     pp = Path(case_dir) / "postProcessing"
     if not pp.is_dir():
@@ -975,9 +985,9 @@ def parse_forces(case_dir, axis=(0, 1, 0), omega_rad_s=None, func=None):
 
 
 # --- generic full snappyHexMesh: any STL -> hex-dominant + BL (quantitative aero) ----
-# OF12 motorBikeSteady 튜토리얼의 검증된 control 값을 STL bbox로 일반화. blockMesh 배경 박스 +
-# surfaceFeatures + snappy(castellate+snap+addLayers, parallel). 결과 패치 inlet/outlet/bottom/
-# farfield/body(wall) → scaffold_external_ras로 바로 solve 가능. dirty STL도 ray-cast라 OK.
+# Generalises the verified control values of the OF12 motorBikeSteady tutorial to any STL bbox. blockMesh
+# background box + surfaceFeatures + snappy (castellate+snap+addLayers, parallel). Resulting patches inlet/outlet/
+# bottom/farfield/body(wall) → directly solvable with scaffold_external_ras. Dirty STL is OK too, since it is ray-cast.
 
 def _blockmesh_dict(mn, mx):
     L, W, H = (mx - mn)
@@ -1004,10 +1014,11 @@ def _blockmesh_dict(mn, mx):
 
 
 def run_snappy_external(case_dir, stl_path, refine=(2, 4), n_layers=3, nprocs=None) -> dict:
-    """임의 STL → **full snappyHexMesh**(castellate+snap+addLayers) → hex-dominant + prism BL.
-    blockMesh 배경박스(STL bbox) + surfaceFeatures + snappy(parallel) → reconstructParMesh →
-    checkMesh. 정량 외부유동(drag)용 — gmsh-tet보다 품질 우수, dirty STL도 ray-cast라 견딤.
-    결과 패치: inlet/outlet/bottom/farfield/body(wall). scaffold_external_ras로 바로 solve."""
+    """Any STL → **full snappyHexMesh** (castellate+snap+addLayers) → hex-dominant + prism BL.
+    blockMesh background box (STL bbox) + surfaceFeatures + snappy (parallel) → reconstructParMesh →
+    checkMesh. For quantitative external flow (drag) — better quality than gmsh-tet, and survives dirty STL
+    since it is ray-cast. Resulting patches: inlet/outlet/bottom/farfield/body(wall). Solve directly with
+    scaffold_external_ras."""
     import shutil
 
     import numpy as np
@@ -1019,8 +1030,8 @@ def run_snappy_external(case_dir, stl_path, refine=(2, 4), n_layers=3, nprocs=No
     sysd.mkdir(parents=True, exist_ok=True)
     tri.mkdir(parents=True, exist_ok=True)
     _ensure_case_skeleton(case)
-    # OBJ의 named region들은 snappy에서 패치를 region별로 쪼갠다(motorBike→70개). trimesh로
-    # 단일 mesh로 병합해 STL로 내보내면 region이 사라져 snappy가 'body' 한 패치만 만든다.
+    # named regions in an OBJ make snappy split the patch per region (motorBike→70 of them). Merging into a
+    # single mesh with trimesh and exporting as STL drops the regions, so snappy creates just one 'body' patch.
     b = trimesh.load(str(stl_path), force="mesh")
     surf = "body.stl"
     b.export(str(tri / surf))
@@ -1069,12 +1080,12 @@ def run_snappy_external(case_dir, stl_path, refine=(2, 4), n_layers=3, nprocs=No
     rb = foam.run_foam("blockMesh", case=case, timeout=600)
     steps.append(("blockMesh", rb.ok))
     if not rb.ok:
-        return {"ok": False, "error": "blockMesh 실패", "steps": steps, "log_tail": rb.tail(500)}
+        return {"ok": False, "error": "blockMesh failed", "steps": steps, "log_tail": rb.tail(500)}
     foam.run_foam("decomposePar", ["-force"], case=case, timeout=600)
     rs = foam.run_foam("mpirun", ["-np", str(n), "snappyHexMesh", "-overwrite", "-parallel"],
                        case=case, timeout=2400, log=True, log_name="snappyHexMesh")
     steps.append((f"snappyHexMesh(parallel {n})", rs.ok))
-    # OF12: reconstructParMesh는 reconstructPar로 통합됨(메시 자동 재구성)
+    # OF12: reconstructParMesh has been merged into reconstructPar (mesh reconstructed automatically)
     foam.run_foam("reconstructPar", ["-constant"], case=case, timeout=900)
     rc = foam.run_foam("checkMesh", case=case, timeout=900)
     cm = foam.parse_checkmesh(rc.stdout)

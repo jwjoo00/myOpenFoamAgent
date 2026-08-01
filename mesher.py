@@ -63,7 +63,7 @@ def mesh_airfoil_2d(out_dir, size_min, size_max, *, dat_path, chord=1.0, aoa=0.0
 
     pts = _read_airfoil_dat(dat_path)
     if len(pts) < 10:
-        raise ValueError(f"airfoil .dat에 점이 부족: {len(pts)} ({dat_path})")
+        raise ValueError(f"not enough points in airfoil .dat: {len(pts)} ({dat_path})")
     if pts[0] == pts[-1]:
         pts = pts[:-1]
     a = -math.radians(aoa)
@@ -225,8 +225,8 @@ def _close_watertight(mesh):
 
 
 def _surface_deviation(orig, mesh):
-    """원본 STL 대비 최종(메싱될) 표면이 얼마나 어긋났나 — body 대각선 % (max/mean).
-    'STL을 얼마나 고쳤나' 보고용. rtree/proximity 불가하면 None."""
+    """How far the final (to-be-meshed) surface strays from the original STL — % of the body diagonal (max/mean).
+    For reporting 'how much the STL was modified'. None if rtree/proximity is unavailable."""
     import numpy as np
     import trimesh
     try:
@@ -244,11 +244,11 @@ def _surface_deviation(orig, mesh):
 
 def repair_to_watertight(src, dest_stl, target_faces=20000, smooth=0,
                          smooth_method="humphrey") -> dict:
-    """Load an OBJ/STL, decimate, repair (pymeshfix) → WATERTIGHT STL. smooth>0이면
-    벽면 sharp angle을 펴서(humphrey/taubin) boundary tet 품질을 올린다(non-ortho↓): 실측상
-    decimation이 거칠수록 + smooth가 클수록 non-ortho가 89°→81°까지 내려간다. smoothing이
-    만든 self-intersection은 재-close로 제거. 원본 대비 변형량(deviation)을 함께 반환한다 —
-    STL은 신성불가침이 아니라 '얼마나 고쳤는지' 측정·보고하는 게 핵심."""
+    """Load an OBJ/STL, decimate, repair (pymeshfix) → WATERTIGHT STL. If smooth>0, sharp wall
+    angles are flattened (humphrey/taubin) to raise boundary tet quality (non-ortho↓): measured,
+    the coarser the decimation + the larger the smooth, the lower non-ortho goes, 89°→81°. Self-intersections
+    created by smoothing are removed by re-closing. The deviation from the original is returned too —
+    the STL is not sacrosanct; the point is to measure and report 'how much was repaired'."""
     import trimesh
 
     m = trimesh.load(str(src), force="mesh")
@@ -358,7 +358,7 @@ def mesh_external_stl_3d(out_dir, stl, size_max=None, *, pad=(2, 5, 2, 3, 2),
 
 
 def _stl_to_step_solid(stl, step):
-    """OCP(cadquery-ocp): watertight STL을 sew→solid→ShapeFix→STEP. dirty/non-watertight면 실패."""
+    """OCP (cadquery-ocp): watertight STL through sew→solid→ShapeFix→STEP. Fails if dirty/non-watertight."""
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
     from OCP.ShapeFix import ShapeFix_Solid
     from OCP.StlAPI import StlAPI_Reader
@@ -374,7 +374,7 @@ def _stl_to_step_solid(stl, step):
     sew.Perform()
     exp = TopExp_Explorer(sew.SewedShape(), TopAbs_SHELL)
     if not exp.More():
-        raise RuntimeError("OCC sewing이 closed shell을 못 만듦 (STL이 watertight 아님)")
+        raise RuntimeError("OCC sewing could not build a closed shell (STL is not watertight)")
     solid = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(exp.Current())).Solid()
     fx = ShapeFix_Solid(solid)
     fx.Perform()
@@ -385,8 +385,8 @@ def _stl_to_step_solid(stl, step):
 
 
 def _netgen_to_gmsh(m, path, patches=("inlet", "outlet", "farfield", "body")) -> int:
-    """netgen Mesh → gmsh v2.2 .msh (tet type4 + prism type6 BL + 경계 tri type2).
-    FaceDescriptor.bcname으로 패치 분류; BL 내부 인터페이스(mapped_*)는 internal로 둔다."""
+    """netgen Mesh → gmsh v2.2 .msh (tet type4 + prism type6 BL + boundary tri type2).
+    Patches classified by FaceDescriptor.bcname; the BL-internal interfaces (mapped_*) are left as internal."""
     pts = m.Points()
     fds = list(m.FaceDescriptors())
     bcname = {i: fd.bcname for i, fd in enumerate(fds, start=1)}
@@ -432,9 +432,9 @@ def _netgen_to_gmsh(m, path, patches=("inlet", "outlet", "farfield", "body")) ->
 
 def mesh_external_netgen_bl(out_dir, stl, *, n_layers=3, first_layer=None, expansion=1.3,
                             maxh_factor=0.22, pad=(2, 5, 2, 3, 2), msh_name="mesh.msh") -> dict:
-    """**Clean watertight** body STL → OCC solid(OCP sew) → netgen OCC box−body를 **prism
-    boundary layer까지 한 번에** 메싱 → gmsh .msh. 매끈한 형상(sphere·Ahmed·거울 없는 차)용.
-    바이크처럼 thin feature 많은 형상은 netgen BL이 깨지니 snappy add_boundary_layers를 쓸 것."""
+    """**Clean watertight** body STL → OCC solid (OCP sew) → netgen meshes the OCC box−body **including
+    the prism boundary layer in one shot** → gmsh .msh. For smooth shapes (sphere, Ahmed, a car without mirrors).
+    On shapes with many thin features, like a bike, netgen BL breaks — use snappy add_boundary_layers instead."""
     import numpy as np
     import trimesh
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""qexp.py — gmsh 외부메시 품질 실험 하니스 (self-improve 루프 설계용 데이터 수집).
+"""qexp.py — gmsh external-mesh quality experiment harness (data collection for self-improve loop design).
 
-OBJ → pymeshfix repair(+decimate) → gmsh 외부 volume(차체 띄움, knob 적용) →
-Netgen optimize → gmshToFoam → checkMesh. 마지막 줄에 JSON 한 줄(품질지표)만 stdout.
-나머지 진단은 stderr. 같은 머신에서 여러 config를 병렬로 돌려 품질 landscape를 본다.
+OBJ → pymeshfix repair(+decimate) → gmsh external volume (body floated off the floor, knobs applied) →
+Netgen optimize → gmshToFoam → checkMesh. Only one JSON line (quality metrics) on stdout, as the last line.
+Everything else diagnostic goes to stderr. Run several configs in parallel on one machine to see the quality landscape.
 """
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ def log(*a):
 
 
 def deviation_pct(orig_obj, final_stl):
-    """원본 STL 대비 최종(메싱된) 표면이 얼마나 어긋났나 — geometric fidelity 측정.
-    최종 표면 위 점들의 원본까지 최단거리(Hausdorff류)를 body 대각선 % 로."""
+    """How far the final (meshed) surface strayed from the original STL — geometric fidelity measure.
+    Shortest distance (Hausdorff-like) from points on the final surface to the original, as % of the body diagonal."""
     import numpy as np
     import trimesh
 
@@ -202,7 +202,7 @@ def main():
                              smooth_method=args.smooth_method)
         out.update(raw_faces=raw, repaired_faces=nf, watertight=wt)
         try:
-            out["deviation"] = deviation_pct(args.obj, str(fixed))   # 원본 대비 변형량
+            out["deviation"] = deviation_pct(args.obj, str(fixed))   # deviation from the original
         except Exception as e:
             log("deviation skip:", e)
         log("repaired", nf, "watertight", wt)

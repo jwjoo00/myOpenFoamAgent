@@ -50,11 +50,11 @@ def main() -> int:
     tu = Blk(type="tool_use", id="t1", name="list_tutorials",
              input={"filter": "cavity", "limit": 5})
     scripted = [
-        Resp([Blk(type="text", text="튜토리얼을 찾아볼게요."), tu], stop_reason="tool_use"),
-        Resp([Blk(type="text", text="cavity 후보를 찾았습니다.")], stop_reason="end_turn"),
+        Resp([Blk(type="text", text="Let me look for tutorials."), tu], stop_reason="tool_use"),
+        Resp([Blk(type="text", text="Found some cavity candidates.")], stop_reason="end_turn"),
     ]
     client = FakeClient(scripted)
-    messages = [{"role": "user", "content": "cavity 찾아줘"}]
+    messages = [{"role": "user", "content": "find cavity"}]
 
     agent.run_agent_turn(client, messages, auto_approve=True)
 

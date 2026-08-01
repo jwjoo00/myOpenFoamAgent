@@ -1,99 +1,99 @@
-# SETUP — 새 머신 환경 구성
+# SETUP — setting up a new machine
 
-> 목표: 다른 컴퓨터에서 `python bootstrap.py`가 돌게 만들기. 핵심은 **WSL2/Linux + OpenFOAM 12 + Python venv + API 키**.
-
----
-
-## 0. 전제 — 실행 환경
-
-OpenFOAM은 Linux 바이너리라 **WSL2(Windows) 또는 네이티브 Linux**가 필요합니다. Windows 단독 불가.
-- Windows라면: WSL2 설치(`wsl --install`) → Ubuntu 22.04 권장
-- 소스 코드는 어디 둬도 되지만, 무거운 RUNS 데이터는 ext4(리눅스 홈)에 두는 게 빠름
+> Goal: get `python bootstrap.py` running on another computer. The essentials are **WSL2/Linux + OpenFOAM 12 + Python venv + API key**.
 
 ---
 
-## 1. OpenFOAM 12 (Foundation) 설치
+## 0. Prerequisite — execution environment
 
-openfoam.org(ESI 아님 주의) 버전 12. Ubuntu 기준:
+OpenFOAM ships as Linux binaries, so you need **WSL2 (on Windows) or native Linux**. Windows alone will not work.
+- On Windows: install WSL2 (`wsl --install`) → Ubuntu 22.04 recommended
+- The source code can live anywhere, but heavy RUNS data is faster on ext4 (the Linux home directory)
+
+---
+
+## 1. Install OpenFOAM 12 (Foundation)
+
+Version 12 from openfoam.org (note: **not** ESI). On Ubuntu:
 ```bash
 sudo sh -c "wget -O - https://dl.openfoam.org/gpg.key | gpg --dearmor | tee /etc/apt/trusted.gpg.d/openfoam.gpg > /dev/null"
 sudo add-apt-repository http://dl.openfoam.org/ubuntu
 sudo apt update && sudo apt install openfoam12
-# 확인
+# verify
 source /opt/openfoam12/etc/bashrc && blockMesh -help | head -1
 ```
-설치 경로가 `/opt/openfoam12`가 아니면 `config.py`의 `OPENFOAM_BASHRC` 또는 환경변수로 지정.
-> CHT는 `/opt/openfoam12/tutorials/multiRegion/CHT/*`를 시작점으로 사용 — 설치본에 포함됨.
+If the install path is not `/opt/openfoam12`, point `OPENFOAM_BASHRC` in `config.py` (or the environment variable) at it.
+> CHT uses `/opt/openfoam12/tutorials/multiRegion/CHT/*` as its starting point — included in the installation.
 
 ---
 
-## 2. Python venv + 의존성
+## 2. Python venv + dependencies
 
 ```bash
-# 전용 venv (다른 anaconda/system env와 섞지 말 것 — 격리 원칙)
+# dedicated venv (never mix with other anaconda/system envs — isolation principle)
 python3 -m venv ~/of_agent_venv
 ~/of_agent_venv/bin/pip install --upgrade pip
 ~/of_agent_venv/bin/pip install -r requirements.txt
 ```
-venv 경로가 `~/of_agent_venv`가 아니면 `export OF_AGENT_PYTHON=/path/to/venv/bin/python` (bootstrap이 이걸로 자동 전환).
+If the venv path is not `~/of_agent_venv`, set `export OF_AGENT_PYTHON=/path/to/venv/bin/python` (bootstrap auto-switches to it).
 
 ---
 
-## 3. bubblewrap (선택 — 자가진화 샌드박스용)
+## 3. bubblewrap (optional — for the self-evolution sandbox)
 
-플러그인 샌드박스/자율진화를 쓰려면 필요. 없으면 fail-closed(자율 OFF, 플러그인 실행 거부).
+Required if you want the plugin sandbox / autonomous evolution. Without it the system is fail-closed (autonomy OFF, plugin execution refused).
 ```bash
 sudo apt install bubblewrap   # bwrap
-bwrap --version               # 확인
+bwrap --version               # verify
 ```
-챗-드리븐(사람 승인) CFD 작업만 할 거면 bwrap 없어도 됨.
+If you only do chat-driven (human-approved) CFD work, you do not need bwrap.
 
 ---
 
-## 4. 환경변수
+## 4. Environment variables
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...      # 필수 (에이전트가 Claude API 호출)
-# 선택 (기본값 있음):
-export OF_AGENT_RUNS=~/of_agent_runs     # 케이스/결과 데이터 위치 (ext4 권장, Dropbox 밖)
-export OF_AGENT_PYTHON=~/of_agent_venv/bin/python   # 전용 venv
-# export OF_AGENT_WEB=1                   # 웹 검색·다운로드 켜기 (Console에서 web search 활성화 필요)
+export ANTHROPIC_API_KEY=sk-ant-...      # required (the agent calls the Claude API)
+# optional (defaults exist):
+export OF_AGENT_RUNS=~/of_agent_runs     # location of case/result data (ext4 recommended, outside Dropbox)
+export OF_AGENT_PYTHON=~/of_agent_venv/bin/python   # dedicated venv
+# export OF_AGENT_WEB=1                   # enable web search/download (web search must be enabled in the Console)
 ```
-`.bashrc`에 넣어두면 편함.
+Handy to put these in `.bashrc`.
 
 ---
 
-## 5. 동작 확인
+## 5. Verify it works
 
 ```bash
 cd <project>
-python bootstrap.py --canary     # 13 checks 통과해야 정상 (실패 시 아래 트러블슈팅)
-python bootstrap.py              # 에이전트 실행 → 🧑 프롬프트 뜨면 성공
+python bootstrap.py --canary     # all 13 checks must pass (if not, see troubleshooting below)
+python bootstrap.py              # run the agent → the 🧑 prompt appearing means success
 ```
 
-빠른 CFD 동작 테스트(대화창에서):
-- `"cavity 튜토리얼 셋업하고 짧게 돌려줘"` (외부유동 기본)
-- `"multiRegion/CHT/coolingCylinder2D 복사해서 run_cht로 돌리고 cht_report 보여줘"` (CHT)
+Quick CFD smoke test (from the chat window):
+- `"set up the cavity tutorial and run it briefly"` (external-flow basics)
+- `"copy multiRegion/CHT/coolingCylinder2D, run it with run_cht, and show me cht_report"` (CHT)
 
 ---
 
-## 6. 트러블슈팅
+## 6. Troubleshooting
 
-| 증상 | 원인 / 해결 |
+| Symptom | Cause / fix |
 |---|---|
-| `preflight canary 실패: geometry_watertight` + `No module named 'trimesh'` | `python`이 venv가 아님 → venv로 실행하거나 `pip install -r requirements.txt`. bootstrap이 자동 전환하지만, OF_AGENT_PYTHON 경로 확인 |
-| `blockMesh: command not found` | OpenFOAM bashrc 미source / 미설치. `config.py OPENFOAM_BASHRC` 확인 |
-| `ANTHROPIC_API_KEY 가 설정되지 않았습니다` | `export ANTHROPIC_API_KEY=...` |
-| 자율진화/플러그인 실행 거부 | bwrap 미설치(정상 fail-closed). `apt install bubblewrap` 또는 챗-드리븐만 사용 |
-| canary `security_*` 실패 | 보안 불변식 깨짐 — 최근 손편집(config/agent/tools) 점검, `backups/`에서 복구 |
-| 병렬 CHT `MPI_ABORT` | 작은 메시 과분해. `run_cht(..., parallel=False)` 또는 `nprocs` 작게 |
+| `preflight canary failed: geometry_watertight` + `No module named 'trimesh'` | `python` is not the venv → run via the venv or `pip install -r requirements.txt`. bootstrap auto-switches, but check the OF_AGENT_PYTHON path |
+| `blockMesh: command not found` | OpenFOAM bashrc not sourced / not installed. Check `config.py OPENFOAM_BASHRC` |
+| `ANTHROPIC_API_KEY is not set` | `export ANTHROPIC_API_KEY=...` |
+| Autonomous evolution / plugin execution refused | bwrap not installed (normal fail-closed). `apt install bubblewrap`, or stick to chat-driven use |
+| canary `security_*` failure | A security invariant is broken — review recent hand-edits (config/agent/tools), restore from `backups/` |
+| `MPI_ABORT` in parallel CHT | Small mesh over-decomposed. Use `run_cht(..., parallel=False)` or a smaller `nprocs` |
 
 ---
 
-## 7. 파일 권한/경로 메모
+## 7. Notes on file permissions / paths
 
-- `config.py`가 모든 머신-의존 경로를 환경변수로 흡수 → 코드 수정 없이 새 머신 적응 가능
-- `RUNS_ROOT`(케이스 데이터)는 **Dropbox 밖 ext4** 권장 (동기화 부담·충돌 방지)
-- 소스(`*.py`)만 git/Dropbox로 옮기면 됨. RUNS 데이터는 재생성 가능 (검증 케이스는 HANDOFF.md 절차로 재현)
+- `config.py` absorbs every machine-dependent path into an environment variable → adapts to a new machine without code changes
+- `RUNS_ROOT` (case data) is best kept on **ext4 outside Dropbox** (avoids sync load and conflicts)
+- Only the source (`*.py`) needs to move via git/Dropbox. RUNS data can be regenerated (validation cases are reproduced by the procedure in HANDOFF.md)
 
-자세한 프로젝트 개요·교훈·로드맵 → **HANDOFF.md**.
+Full project overview · lessons · roadmap → **HANDOFF.md**.

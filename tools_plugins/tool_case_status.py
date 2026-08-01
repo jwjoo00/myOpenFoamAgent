@@ -8,9 +8,9 @@ READONLY = True
 
 SPEC = {
     "name": "case_status",
-    "description": "OpenFOAM 케이스의 빠른 상태 요약(read-only): 로그 유무, 마지막 solver time, 수렴 여부, timeout 의심, forces.dat 존재. mesh/solve 후 한 번에 점검.",
+    "description": "Quick status summary of an OpenFOAM case (read-only): log present, last solver time, converged or not, suspected timeout, forces.dat present. One-shot check after mesh/solve.",
     "input_schema": {"type": "object", "properties": {
-        "case_dir": {"type": "string", "description": "케이스 경로(절대) 또는 run_id"}}, "required": ["case_dir"]},
+        "case_dir": {"type": "string", "description": "case path (absolute) or run_id"}}, "required": ["case_dir"]},
 }
 
 
@@ -19,7 +19,7 @@ def handler(case_dir: str) -> dict:
     if not p.is_absolute():
         p = Path(config.RUNS_ROOT) / case_dir
     if not p.is_dir():
-        return {"ok": False, "error": f"케이스 없음: {p}"}
+        return {"ok": False, "error": f"case not found: {p}"}
     log = p / "log.foamRun"
     conv = meshgen.parse_convergence(case_dir=str(p)) if log.is_file() else {}
     forces = list(p.glob("postProcessing/*/*/forces.dat"))

@@ -34,8 +34,8 @@ DTMB_4119 = [
 
 def _meanline_a08(u, a=0.8):
     """NACA a=0.8 mean line ordinate y_c/c for design Cl_i=1 (Abbott & von Doenhoff,
-    NACA Rep. 824). DTMB 4119의 실제 meanline — uniform loading 0..a then linear to TE.
-    parabolic 근사보다 정확한 camber 분포(앞전 loading) → 정확한 유효 받음각·Kt."""
+    NACA Rep. 824). The actual DTMB 4119 meanline — uniform loading 0..a then linear to TE.
+    More accurate camber distribution (LE loading) than the parabolic approximation → accurate effective angle of attack and Kt."""
     import numpy as np
     x = np.clip(u, 1e-6, 1 - 1e-6)
     om = 1.0 - a
@@ -58,9 +58,9 @@ _B_FC = [0.0200, 0.0200, 0.0190, 0.0180, 0.0170, 0.0160, 0.0150, 0.0140, 0.0120]
 
 
 def wageningen_b_series(Z=4, AE_A0=0.70, PD=1.0):
-    """Wageningen B-series 프로펠러의 offset table(r/R, c/D, P/D, camber, thickness) 생성.
-    Z=블레이드수(2~7), AE_A0=전개면적비(0.3~1.05), PD=피치비(0.5~1.4). 일정 피치.
-    generate_propeller(table=...)에 넘기면 STL이 나온다. 예: B4-70 = Z=4, AE_A0=0.70."""
+    """Generate the offset table (r/R, c/D, P/D, camber, thickness) of a Wageningen B-series propeller.
+    Z=blade count (2~7), AE_A0=expanded-area ratio (0.3~1.05), PD=pitch ratio (0.5~1.4). Constant pitch.
+    Pass it to generate_propeller(table=...) and you get an STL. e.g. B4-70 = Z=4, AE_A0=0.70."""
     tbl = []
     for rr, kc, td, fc in zip(_B_RR, _B_KC, _B_TD, _B_FC):
         cD = max(kc * float(AE_A0) / max(int(Z), 1), 0.003)   # c/D
@@ -101,7 +101,7 @@ _KQ_COEF = [
 
 def bseries_KT_KQ(J, PD, AE_A0, Z):
     """Wageningen B-series open-water KT, KQ(=10·Kq/10) from the Oosterveld-van Oossanen polynomial.
-    반환 (KT, KQ). CFD MRF 결과 검증의 reference. (Re=2e6 기준; 우리 ~1e6은 약간 차이)."""
+    Returns (KT, KQ). Reference for validating CFD MRF results. (Based on Re=2e6; ours at ~1e6 differs slightly)."""
     KT = sum(C * J**s * PD**t * AE_A0**u * Z**v for C, s, t, u, v in _KT_COEF)
     KQ = sum(C * J**s * PD**t * AE_A0**u * Z**v for C, s, t, u, v in _KQ_COEF)
     return KT, KQ
@@ -176,10 +176,10 @@ def _blade(table, D, n_chord, handed, meanline="a08", thickness_form="naca4"):
 def generate_propeller(out_dir, table=None, n_blades=3, diameter=0.3048, hub_ratio=0.2,
                        handed=1, n_chord=60, zone_scale=1.25, meanline="a08",
                        thickness_form="naca4") -> dict:
-    """propeller.stl(블레이드+허브) + rotatingZone.stl(MRF cellZone 실린더)을 out_dir에 쓴다.
-    table: (r/R, c/D, P/D, camber, thickness) 행 목록(기본 DTMB 4119). handed=±1 회전손잡이.
-    meanline='a08'(정확한 NACA a=0.8) 또는 'parabolic'. thickness_form='naca66'(DTMB 정확, peak ~45%)
-    또는 'naca4'(기본)."""
+    """Writes propeller.stl (blades + hub) + rotatingZone.stl (MRF cellZone cylinder) into out_dir.
+    table: list of (r/R, c/D, P/D, camber, thickness) rows (default DTMB 4119). handed=±1 rotation handedness.
+    meanline='a08' (exact NACA a=0.8) or 'parabolic'. thickness_form='naca66' (exact DTMB, peak ~45%)
+    or 'naca4' (default)."""
     import numpy as np
     import trimesh
     tbl = table or DTMB_4119

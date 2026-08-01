@@ -148,35 +148,35 @@ def _gather_meta(case: Path) -> dict:
 def _render_md(run_id: str, data: dict, mesh: dict, artifacts: dict) -> str:
     g = data.get
     lines = [f"# CFD run report — `{run_id}`", ""]
-    lines += ["## 설정 (settings)", "",
-              "| 항목 | 값 |", "|---|---|",
+    lines += ["## Settings", "",
+              "| Item | Value |", "|---|---|",
               f"| case_kind | {g('case_kind')} |",
               f"| solver | {g('solver')} |",
               f"| turbulence | {g('turb_model')} |",
               f"| viscosity nu | {g('nu')} |",
               f"| endTime | {g('end_time')} |",
               f"| geometry | {g('geometry_src')} |", ""]
-    lines += ["## 격자 품질 (checkMesh)", "",
-              "| 지표 | 값 |", "|---|---|",
+    lines += ["## Mesh quality (checkMesh)", "",
+              "| Metric | Value |", "|---|---|",
               f"| cells | {mesh.get('cells') or g('mesh_cells')} |",
               f"| max non-orthogonality | {mesh.get('max_non_ortho')} |",
               f"| max skewness | {mesh.get('max_skewness')} |",
               f"| Mesh OK | {mesh.get('mesh_ok')} |", ""]
-    lines += ["## 실행 결과 (run)", "",
-              "| 항목 | 값 |", "|---|---|",
+    lines += ["## Run results", "",
+              "| Item | Value |", "|---|---|",
               f"| reached time | {g('last_time')} |",
               f"| max Courant | {g('max_courant')} |",
               f"| diverged | {g('diverged')} |",
               f"| converged | {g('converged')} |",
               f"| wall time [s] | {g('wall_time')} |", ""]
     if artifacts.get("residuals_png"):
-        lines += ["## 수렴 (residuals)", "",
+        lines += ["## Convergence (residuals)", "",
                   f"![residuals]({Path(artifacts['residuals_png']).name})", ""]
     if artifacts.get("velocity_png"):
-        lines += ["## 속도장 (velocity)", "",
+        lines += ["## Velocity field", "",
                   f"![velocity]({Path(artifacts['velocity_png']).name})", ""]
     elif artifacts.get("velocity_error"):
-        lines += ["## 속도장", "", f"_(생략: {artifacts['velocity_error']})_", ""]
+        lines += ["## Velocity field", "", f"_(skipped: {artifacts['velocity_error']})_", ""]
     return "\n".join(lines)
 
 

@@ -23,8 +23,8 @@ def main() -> int:
         ok = True
 
         # write_file inside an allowed root
-        r = tools.write_file(str(config.RUNS_ROOT / "case1" / "note.txt"), "hello\n표 데이터")
-        ok &= r["ok"] and Path(r["path"]).read_text() == "hello\n표 데이터"
+        r = tools.write_file(str(config.RUNS_ROOT / "case1" / "note.txt"), "hello\nunicode ü 表 ✓")
+        ok &= r["ok"] and Path(r["path"]).read_text() == "hello\nunicode ü 表 ✓"
 
         # escapes rejected
         bad1 = tools.write_file("/etc/oops.txt", "x")

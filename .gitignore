@@ -1,11 +1,8 @@
 __pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-backups/
-_*.py
+*.pyc
+*.v[0-9]*
+# Heavy case data lives on ext4 (~/of_agent_runs), not in the repo. The light
+# reports under ./reports ARE kept — they are the deliverable.
+of_agent_runs/
+cases/
 *.db
-.DS_Store
-.idea/
-.vscode/

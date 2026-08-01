@@ -124,40 +124,40 @@ def _validate_plugin_ast(source: str):
         if isinstance(n, ast.Import):
             for a in n.names:
                 if a.name.split(".")[0] in _BANNED_IMPORTS:
-                    return False, f"금지된 import(어디서든): {a.name}", None
+                    return False, f"banned import (anywhere): {a.name}", None
         elif isinstance(n, ast.ImportFrom):
             if (n.module or "").split(".")[0] in _BANNED_IMPORTS:
-                return False, f"금지된 from-import(어디서든): {n.module}", None
+                return False, f"banned from-import (anywhere): {n.module}", None
         elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _BANNED_CALLS:
-            return False, f"금지된 호출(어디서든): {n.func.id}()", None
+            return False, f"banned call (anywhere): {n.func.id}()", None
     # Layer 2 — module level: nothing executes at import time.
     spec_val = None
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.decorator_list:               # ANY decorator runs at import (even bare @name)
-                return False, "데코레이터 금지 (import-time 실행)", None
+                return False, "decorators forbidden (they run at import time)", None
             defaults = list(node.args.defaults) + [d for d in node.args.kw_defaults if d is not None]
             if any(_has_call(d) for d in defaults):
-                return False, "기본 인자값에 호출 금지 (import-time 실행)", None
+                return False, "no calls in default argument values (they run at import time)", None
             continue                              # body is deferred to call time
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             continue                              # banned ones already rejected in layer 1
         if isinstance(node, ast.Assign):
             if not all(isinstance(t, ast.Name) for t in node.targets):
-                return False, "모듈-레벨 attribute 대입 금지 (예: tools.GATED=...)", None
+                return False, "module-level attribute assignment forbidden (e.g. tools.GATED=...)", None
             if any(t.id == "SPEC" for t in node.targets):
                 try:
                     spec_val = ast.literal_eval(node.value)
                 except Exception:
-                    return False, "SPEC는 리터럴 dict여야 함 (동적 표현 금지)", None
+                    return False, "SPEC must be a literal dict (no dynamic expressions)", None
             elif _has_call(node.value):
-                return False, "모듈-레벨 대입값에 호출 금지 (import-time 실행)", None
+                return False, "no calls in module-level assigned values (they run at import time)", None
             continue
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
             continue                              # docstring / bare literal
-        return False, f"허용되지 않는 모듈-레벨 구문: {type(node).__name__} (call·class·제어문 등 금지)", None
+        return False, f"disallowed module-level statement: {type(node).__name__} (calls, class defs, control flow, etc. forbidden)", None
     if not isinstance(spec_val, dict) or "name" not in spec_val:
-        return False, "SPEC(name 포함 리터럴 dict) 필수", None
+        return False, "SPEC (a literal dict containing 'name') is required", None
     return True, "ok", spec_val
 
 
@@ -240,8 +240,8 @@ def run_plugin_sandboxed(plugin_file: str, args: dict, timeout: int = 30) -> dic
     prefix, level = _sandbox_cmd()
     if level == "process-only" and not ALLOW_UNSANDBOXED:
         return {"ok": False, "sandbox": level,
-                "error": "real sandbox(bwrap/firejail) 없음 → 플러그인 실행 거부(fail-closed). "
-                         "신뢰 호스트면 OF_AGENT_ALLOW_UNSANDBOXED=1 (chat-driven 한정, 비권장)."}
+                "error": "no real sandbox (bwrap/firejail) → plugin execution refused (fail-closed). "
+                         "On a trusted host set OF_AGENT_ALLOW_UNSANDBOXED=1 (chat-driven only, not recommended)."}
     env = {"HOME": "/tmp", "MPLCONFIGDIR": "/tmp", "PYTHONDONTWRITEBYTECODE": "1",
            "OF_AGENT_RUNS": str(Path(config.RUNS_ROOT)), "OF_AGENT_LOAD_PLUGINS": "0",
            "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
@@ -251,19 +251,19 @@ def run_plugin_sandboxed(plugin_file: str, args: dict, timeout: int = 30) -> dic
                               timeout=timeout, env=env, start_new_session=True,
                               preexec_fn=_rlimits if os.name == "posix" else None)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"플러그인 timeout({timeout}s) — 강제종료", "sandbox": level}
+        return {"ok": False, "error": f"plugin timeout ({timeout}s) — killed", "sandbox": level}
     except Exception as e:
-        return {"ok": False, "error": f"샌드박스 실행 실패: {type(e).__name__}: {e}", "sandbox": level}
+        return {"ok": False, "error": f"sandbox execution failed: {type(e).__name__}: {e}", "sandbox": level}
     out_s = proc.stdout or ""
     if len(out_s) > _MAX_RESULT:
-        return {"ok": False, "error": f"플러그인 출력 과다(>{_MAX_RESULT}B) — 거부", "sandbox": level}
+        return {"ok": False, "error": f"plugin output too large (>{_MAX_RESULT}B) — refused", "sandbox": level}
     for line in out_s.splitlines():
         if line.startswith("RESULT:"):
             out = json.loads(line[len("RESULT:"):])
             if isinstance(out, dict):
                 out.setdefault("sandbox", level)
             return out
-    return {"ok": False, "error": "플러그인 결과 없음", "sandbox": level, "stderr": (proc.stderr or "")[-400:]}
+    return {"ok": False, "error": "no plugin result", "sandbox": level, "stderr": (proc.stderr or "")[-400:]}
 
 
 def _make_sandbox_handler(plugin_path: Path):
@@ -302,7 +302,7 @@ def load_plugins() -> dict:
     for p in discover_plugins():
         try:
             if p.stat().st_size > _MAX_PLUGIN_BYTES:
-                errors.append({"plugin": p.name, "error": f"파일 과대(>{_MAX_PLUGIN_BYTES}B) — 거부"})
+                errors.append({"plugin": p.name, "error": f"file too large (>{_MAX_PLUGIN_BYTES}B) — refused"})
                 continue
             src = p.read_text(encoding="utf-8")
             ok, reason, spec = _validate_plugin_ast(src)
@@ -384,7 +384,7 @@ def list_snapshots() -> list[str]:
 def rollback(snapshot_id: str) -> dict:
     src = SNAP_DIR / snapshot_id
     if not src.is_dir():
-        return {"ok": False, "error": f"snapshot 없음: {snapshot_id}"}
+        return {"ok": False, "error": f"no such snapshot: {snapshot_id}"}
     snapshot("pre_rollback")                      # safety: snapshot current first
     for p in src.glob("*.py"):
         shutil.copy2(p, PROJECT / p.name)
@@ -397,7 +397,7 @@ def rollback(snapshot_id: str) -> dict:
     _log("rollback", id=snapshot_id)
     reload_plugins()
     return {"ok": True, "rolled_back_to": snapshot_id,
-            "note": "커널 파일(agent/tools 등)은 재시작해야 반영됨"}
+            "note": "kernel files (agent/tools etc.) take effect only after a restart"}
 
 
 # -------------------------------------------------------------------- canary (2)
@@ -444,7 +444,7 @@ def canary(level: str = "fast") -> dict:
             # optional geometry dep absent — NOT a code/security failure. Skip so a partial env
             # (e.g. system python without trimesh) doesn't brick the agent; propeller geometry is
             # simply unavailable until it runs under the venv that has trimesh.
-            return True, "trimesh 미설치 — geometry 체크 skip (venv python으로 실행 시 활성)"
+            return True, "trimesh not installed — geometry check skipped (active when run under the venv python)"
         import tempfile
         out = tempfile.mkdtemp(dir=str(STATE))
         try:
@@ -467,19 +467,19 @@ def canary(level: str = "fast") -> dict:
 
     def _gated_baseline():
         missing = REQUIRED_GATED - set(tools.GATED)
-        return not missing, (f"un-gated 위험도구: {sorted(missing)}" if missing else "REQUIRED_GATED ⊆ GATED")
+        return not missing, (f"un-gated dangerous tools: {sorted(missing)}" if missing else "REQUIRED_GATED ⊆ GATED")
 
     def _protected_invariant():
         bad = [f for f in PROTECTED if _classify(f) != "protected"]
         if _classify("CONFIG.PY") != "protected":      # case-variant must still be protected
-            bad.append("CONFIG.PY(case) 우회")
+            bad.append("CONFIG.PY(case) bypass")
         if _classify("tool_x.py") != "hot":
             bad.append("tool_x.py!=hot")
-        return not bad, (f"PROTECTED/_classify 위반: {bad}" if bad else "engine/config/agent/foam protected (case-insensitive)")
+        return not bad, (f"PROTECTED/_classify violation: {bad}" if bad else "engine/config/agent/foam protected (case-insensitive)")
 
     def _allowed_bins():
         missing = REQUIRED_BINS - set(getattr(_cfg, "ALLOWED_BINS", set()))
-        return not missing, (f"confinement bins 제거: {sorted(missing)}" if missing else "ALLOWED_BINS 불변")
+        return not missing, (f"confinement bins removed: {sorted(missing)}" if missing else "ALLOWED_BINS intact")
 
     def _approve_gate():
         import io
@@ -493,7 +493,7 @@ def canary(level: str = "fast") -> dict:
             opened = agent._approve("list_runs", {}, auto=False) is True
         finally:
             _sys.stdin, _sys.stdout = old_in, old_out
-        return denied and opened, f"gated 거부={denied}, ungated 통과={opened}"
+        return denied and opened, f"gated denied={denied}, ungated allowed={opened}"
 
     def _spec_structural():
         seen, bad = set(), []
@@ -501,23 +501,23 @@ def canary(level: str = "fast") -> dict:
         for s in tools.TOOL_SPECS:
             n = s.get("name", "")
             if not rx.match(n):
-                bad.append(f"name형식:{n!r}")
+                bad.append(f"name format:{n!r}")
             if n in seen:
-                bad.append(f"중복:{n}")
+                bad.append(f"duplicate:{n}")
             seen.add(n)
             if not isinstance(s.get("input_schema"), dict):
                 bad.append(f"schema:{n}")
-        return not bad, (f"spec 위반: {bad[:5]}" if bad else f"{len(seen)} specs ok")
+        return not bad, (f"spec violations: {bad[:5]}" if bad else f"{len(seen)} specs ok")
 
     def _plugins_sandboxed():
         if not LOAD_PLUGINS:
-            return True, "validation 모드(plugins 미로드)"
+            return True, "validation mode (plugins not loaded)"
         lvl = sandbox_level()
         if lvl == "bwrap":
             bad = [n for n in _PLUGIN_NAMES if not getattr(tools.DISPATCH.get(n), "_sandboxed", False)]
-            return not bad, f"sandbox=bwrap(state masked), 비샌드박스={bad}"
+            return not bad, f"sandbox=bwrap(state masked), unsandboxed={bad}"
         # no bwrap: real confinement absent → RED unless host explicitly opted out
-        return bool(ALLOW_UNSANDBOXED), f"⚠ {lvl}(비격리), ALLOW_UNSANDBOXED={ALLOW_UNSANDBOXED}"
+        return bool(ALLOW_UNSANDBOXED), f"⚠ {lvl}(not confined), ALLOW_UNSANDBOXED={ALLOW_UNSANDBOXED}"
 
     check("syntax_all", lambda: compile_all())
     check("tool_registry_consistency", _consistency)
@@ -602,21 +602,21 @@ def propose_edit(filename: str, old: str, new: str, *, create: bool = False) -> 
     target = (PLUGINS_DIR / fname) if _classify(fname) == "hot" else (PROJECT / fname)
     kind = _classify(fname)
     if not create and not target.is_file():
-        return {"ok": False, "error": f"파일 없음: {fname} (새 파일이면 create=True)"}
+        return {"ok": False, "error": f"no such file: {fname} (pass create=True for a new file)"}
     original = target.read_text(encoding="utf-8") if target.is_file() else ""
     if create:
         updated = new
     else:
         if old not in original:
-            return {"ok": False, "error": "old 문자열을 파일에서 못 찾음 (정확히 일치해야 함)"}
+            return {"ok": False, "error": "old string not found in the file (must match exactly)"}
         if original.count(old) > 1:
-            return {"ok": False, "error": f"old가 {original.count(old)}번 등장 — 더 고유하게"}
+            return {"ok": False, "error": f"old occurs {original.count(old)} times — make it more unique"}
         updated = original.replace(old, new, 1)
 
     if kind == "hot":      # plugin: static-validate module body BEFORE staging (no import)
         okp, reason, _ = _validate_plugin_ast(updated)
         if not okp:
-            return {"ok": False, "error": f"플러그인 정적 검증 실패: {reason}"}
+            return {"ok": False, "error": f"plugin static validation failed: {reason}"}
 
     edit_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{fname.replace('.', '_')}"
     inc = STAGING_DIR / edit_id
@@ -640,7 +640,7 @@ def propose_edit(filename: str, old: str, new: str, *, create: bool = False) -> 
     can = _run_incubator_canary(inc)     # isolated: no plugin exec, throwaway RUNS_ROOT
     _log("propose_edit", edit_id=edit_id, file=fname, kind=kind, canary_ok=can.get("ok"))
     return {"ok": True, "edit_id": edit_id, "file": fname, "kind": kind,
-            "diff": diff or "(빈 diff)", "canary": can,
+            "diff": diff or "(empty diff)", "canary": can,
             "promote_safe": bool(can.get("ok")) and kind != "protected"}
 
 
@@ -652,16 +652,16 @@ def apply_edit(edit_id: str, *, force: bool = False) -> dict:
     a live security re-check auto-rolls-back if the new plugin set somehow broke an invariant."""
     inc = STAGING_DIR / edit_id
     if not inc.is_dir():
-        return {"ok": False, "error": f"staging 없음: {edit_id}"}
+        return {"ok": False, "error": f"no such staging: {edit_id}"}
     meta = json.loads((inc / "_edit_meta.json").read_text())
     fname, kind = meta["filename"], meta["kind"]
     if kind == "protected":
-        return {"ok": False, "error": f"PROTECTED 파일은 엔진이 절대 쓰지 않음: {fname} (수동 편집만)"}
+        return {"ok": False, "error": f"the engine never writes PROTECTED files: {fname} (manual edit only)"}
     # canary gate. `force` is allowed to skip it ONLY for hot plugin edits.
     if not (force and kind == "hot"):
         if not _run_incubator_canary(inc).get("ok"):
-            return {"ok": False, "error": "incubator canary 실패 — 승격 거부"
-                    + (" (force는 hot 플러그인에만 허용)" if force else " (force=True는 hot에만)")}
+            return {"ok": False, "error": "incubator canary failed — promotion refused"
+                    + (" (force is allowed for hot plugins only)" if force else " (force=True applies to hot only)")}
 
     sid = snapshot(f"pre_{fname}")
     inc_src = (inc / "tools_plugins" / fname) if kind == "hot" else (inc / fname)
@@ -676,12 +676,12 @@ def apply_edit(edit_id: str, *, force: bool = False) -> dict:
             chk = _live_security_check()
             if not chk["ok"]:
                 rollback(sid)
-                result.update(ok=False, error=f"적용 후 보안검사 실패 → 자동 롤백: {chk['failed']}")
+                result.update(ok=False, error=f"post-apply security check failed → auto-rolled back: {chk['failed']}")
                 return result
-        result["note"] = "플러그인 핫리로드 완료 — 다음 턴부터 사용 가능 (재시작 불필요)"
+        result["note"] = "plugin hot-reload done — usable from the next turn (no restart needed)"
     else:
         PROMOTE_SIGNAL.write_text(json.dumps({"file": fname, "snapshot": sid, "t": time.time()}))
-        result["note"] = "커널/모듈 변경 — bootstrap이 재시작(re-exec)해야 반영됨. PROMOTE_SIGNAL 기록함."
+        result["note"] = "kernel/module change — takes effect only after bootstrap re-execs. PROMOTE_SIGNAL written."
     return result
 
 
@@ -695,7 +695,7 @@ def _live_security_check() -> dict:
         failed.append(f"un-gated: {sorted(REQUIRED_GATED - set(_tools_mod.GATED))}")
     names = [s.get("name", "") for s in _tools_mod.TOOL_SPECS]
     if len(names) != len(set(names)):
-        failed.append("중복 tool name")
+        failed.append("duplicate tool name")
     return {"ok": not failed, "failed": failed}
 
 
@@ -709,8 +709,8 @@ def auto_status() -> dict:
 
 def set_auto(on: bool, budget: int = AUTO_BUDGET_DEFAULT, goal: str | None = None) -> dict:
     if on and not _real_sandbox():            # autonomy requires a REAL sandbox, no override
-        return {"ok": False, "error": f"real sandbox(bwrap/firejail) 없이는 자율모드 금지 "
-                f"(현재 {sandbox_level()}) — handler 격리 불가", **_auto}
+        return {"ok": False, "error": f"autonomous mode is forbidden without a real sandbox (bwrap/firejail) "
+                f"(currently {sandbox_level()}) — handler cannot be isolated", **_auto}
     _auto.update(on=bool(on), budget=int(budget) if on else 0, goal=goal)
     _log("set_auto", **_auto)
     return dict(_auto)
@@ -721,16 +721,16 @@ def auto_evolve(filename: str, old: str, new: str, reason: str, *, create: bool 
     create a new tool autonomously), AST-validated + canary must pass (else discarded), per-session
     budget, kernel/PROTECTED refused, all logged. Self-healing the agent can do without bricking."""
     if not _auto["on"]:
-        return {"ok": False, "error": "자율모드 꺼짐 — set_auto(True) 먼저"}
+        return {"ok": False, "error": "autonomous mode is off — call set_auto(True) first"}
     if not _real_sandbox():
-        return {"ok": False, "error": f"real sandbox 없이는 자율 진화 금지 (현재 {sandbox_level()})"}
+        return {"ok": False, "error": f"autonomous evolution is forbidden without a real sandbox (currently {sandbox_level()})"}
     if _auto["budget"] <= 0:
-        return {"ok": False, "error": "자율 편집 예산 소진 — 사람 검토 필요"}
+        return {"ok": False, "error": "autonomous edit budget exhausted — human review required"}
     fname = Path(filename).name
     if create:
-        return {"ok": False, "error": "자율 진화는 새 도구를 만들 수 없음 — 신규 플러그인은 사람 승인(propose/apply) 필요"}
+        return {"ok": False, "error": "autonomous evolution cannot create a new tool — a new plugin needs human approval (propose/apply)"}
     if _classify(fname) != "hot" or not (PLUGINS_DIR / fname).is_file():
-        return {"ok": False, "error": "자율 진화는 **기존** 플러그인(tools_plugins/tool_*.py) 수정만 허용 — 커널·신규는 사람 승인"}
+        return {"ok": False, "error": "autonomous evolution may only modify **existing** plugins (tools_plugins/tool_*.py) — kernel and new files need human approval"}
     prop = propose_edit(filename, old, new, create=False)
     if not prop.get("ok"):
         return {"ok": False, "stage": "propose", **prop}
@@ -738,7 +738,7 @@ def auto_evolve(filename: str, old: str, new: str, reason: str, *, create: bool 
         _log("auto_evolve_rejected", file=filename, reason=reason,
              failed=[f["check"] for f in prop["canary"]["failed"]])
         return {"ok": False, "stage": "canary", "rejected": True,
-                "failed": prop["canary"]["failed"], "note": "canary 실패 → 자동 폐기 (변경 안 됨)"}
+                "failed": prop["canary"]["failed"], "note": "canary failed → auto-discarded (nothing changed)"}
     app = apply_edit(prop["edit_id"])
     _auto["budget"] -= 1
     _log("auto_evolve_applied", file=filename, reason=reason, budget_left=_auto["budget"])
