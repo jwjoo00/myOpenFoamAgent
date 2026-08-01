@@ -80,7 +80,7 @@ Key environment variables: `OF_AGENT_MODEL`, `OF_AGENT_RUNS` (case data root), `
 
 ## Author
 
-**Jongwook Joo, Ph.D.** — I spent seven years as a Staff Research Scientist at **United Technologies Research Center** (2010–2017), leading its LES-for-turbomachinery research portfolio and serving as CFD investigator on NASA and Sikorsky propulsion programs (2017 AHS Alfred Gessow Best Paper Award), following a Stanford Ph.D. in turbulence simulation. Since 2017, I've been a Principal Engineer at Samsung Electronics, designing fans, compressors, and thermal systems for high-volume consumer appliances. The habits this project is built on — validate against experiment, distrust any number you haven't earned — come from that research career.
+**Jongwook Joo, Ph.D.** — I spent seven years as a Staff Research Engineer at **United Technologies Research Center** (2010–2017), leading its LES-for-turbomachinery research portfolio and serving as CFD investigator on NASA and Sikorsky propulsion programs (2017 AHS Alfred Gessow Best Paper Award), following a Stanford Ph.D. in turbulence simulation. Since 2017, I've been a Principal Engineer at Samsung Electronics, designing fans, compressors, and thermal systems for high-volume consumer appliances. The habits this project is built on — validate against experiment, distrust any number you haven't earned — come from that research career.
 
 This is a personal project — built on personal time, hardware, and API keys; not affiliated with or endorsed by any employer.
 
