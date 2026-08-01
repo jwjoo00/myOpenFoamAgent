@@ -1,0 +1,37 @@
+# Core (Phase 1 — the tool-use agent loop)
+anthropic>=0.40
+
+# Post-processing & report (Phase 2)
+matplotlib>=3.5
+numpy>=1.21
+openpyxl>=3.1
+# pyvista (3D headless field render) is optional / later — the cavity & 2D cases
+# use matplotlib tricontourf, so it is intentionally NOT required here.
+
+# Meshing (Phase 3 — gmsh engine for the validator-gated repair loop; self-contained
+# wheel incl. the gmsh SDK, so no system install needed).
+gmsh>=4.13
+# External dirty-STL repair (motorBike etc.): make a non-watertight surface watertight
+# so gmsh can mesh the external volume (generate_mesh geometry=external_stl).
+trimesh>=4.0
+pymeshfix>=0.16
+fast-simplification>=0.1
+scipy>=1.10          # trimesh smoothing (humphrey/taubin) — 벽면 non-ortho 낮추는 lever
+rtree>=1.0           # trimesh proximity → STL deviation 측정(원본 대비 얼마나 고쳤나 보고)
+# external_netgen (clean watertight body BL): OCP로 STL→OCC solid sew, netgen prism layer.
+netgen-mesher>=6.2
+cadquery-ocp>=7.7
+
+# Optional — qexp.py 품질연구 harness 전용 (production 메싱 경로는 미사용; QUALITY_STUDY.md).
+# 매끈한 외부 형상 실험 시: pyacvd 균일remesh, manifold3d repair, tetgen/meshpy quality tets.
+#   scipy pyacvd manifold3d tetgen meshpy
+
+# Phase 0 (config/foam/registry/smoketest) needs only the Python stdlib + a
+# working OpenFOAM 12 install in WSL.
+
+# --- 시스템 의존성 (pip 아님, 별도 설치) — 인수인계 ---
+#  OpenFOAM 12   (Foundation, openfoam.org)  필수 · /opt/openfoam12 · CHT는 multiRegion/CHT 튜토리얼 사용
+#  bubblewrap (bwrap)                         선택 · 플러그인 샌드박스/자율진화용 · 없으면 fail-closed(자율 OFF)
+#  WSL2 또는 Linux                             권장 실행 환경 (Windows 단독 불가 — OF가 Linux 바이너리)
+# 환경변수: ANTHROPIC_API_KEY (필수), OF_AGENT_RUNS(기본 ~/of_agent_runs), OF_AGENT_PYTHON(venv 경로)
+# 자세한 설치/이어가기 → SETUP.md, HANDOFF.md 참조.
